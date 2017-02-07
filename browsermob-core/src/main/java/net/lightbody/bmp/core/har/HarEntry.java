@@ -7,6 +7,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonAutoDetect
 public class HarEntry {
@@ -20,7 +22,19 @@ public class HarEntry {
     private volatile String connection;
     private volatile String comment = "";
 
+    private volatile ConcurrentHashMap<String, String> tags;
+
+
     public HarEntry() {
+    }
+
+    public ConcurrentHashMap<String, String> getTags(){ return this.tags; }
+
+    public void addTag(String tagName, String tagValue) throws Exception{
+       if(tagName.substring(0, 1) != "_") {
+           throw new Exception("String must start with _");
+       }
+       this.tags.put(tagName, tagValue);
     }
 
     public HarEntry(String pageref) {

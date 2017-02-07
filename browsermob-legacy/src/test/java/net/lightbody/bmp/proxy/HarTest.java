@@ -651,6 +651,34 @@ public class HarTest extends LocalServerTest {
 
 		String body = IOUtils.toStringAndClose(client.execute(post).getEntity().getContent());
 
+		Thread.sleep(500);
+		Har har = proxy.getHar();
+		HarLog log = har.getLog();
+		List<HarEntry> entries = log.getEntries();
+		HarEntry entry = entries.get(0);
+
+		entry.addTag("_foo", "bar");
+		assertEquals(entry.getTag("_foo"), "bar1");
+
+		assertEquals("Expected response size to equal the size of the echoed POST request", lengthyPost.length(), entry.getResponse().getBodySize());
+	}
+
+
+
+	@Test
+	public void testHarProps() throws Exception {
+		proxy.setCaptureContent(true);
+		proxy.newHar("test");
+
+		HttpPost post = new HttpPost(getLocalServerHostnameAndPort() + "/echopayload");
+		String lengthyPost = createRandomString(100000);
+
+		HttpEntity entity = new StringEntity(lengthyPost);
+		post.setEntity(entity);
+		post.addHeader("Content-Type", "text/unknown; charset=UTF-8");
+
+		String body = IOUtils.toStringAndClose(client.execute(post).getEntity().getContent());
+
         Thread.sleep(500);
 		Har har = proxy.getHar();
 		HarLog log = har.getLog();
