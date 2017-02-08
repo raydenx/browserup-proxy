@@ -22,18 +22,15 @@ public class HarEntry {
     private volatile String connection;
     private volatile String comment = "";
 
-    private volatile ConcurrentHashMap<String, String> tags;
+    private volatile ConcurrentHashMap<String, String> tags = new ConcurrentHashMap();
 
 
     public HarEntry() {
     }
 
-    public ConcurrentHashMap<String, String> getTags(){ return this.tags; }
+    public ConcurrentHashMap<String, String> get_tags(){ return this.tags; }
 
     public void addTag(String tagName, String tagValue) throws Exception{
-       if(tagName.substring(0, 1) != "_") {
-           throw new Exception("String must start with _");
-       }
        this.tags.put(tagName, tagValue);
     }
 
