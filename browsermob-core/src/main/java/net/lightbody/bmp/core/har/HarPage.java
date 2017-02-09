@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.Date;
+import java.util.concurrent.ConcurrentHashMap;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class HarPage {
@@ -12,6 +13,9 @@ public class HarPage {
     private volatile String title = "";
     private final HarPageTimings pageTimings = new HarPageTimings();
     private volatile String comment = "";
+
+    private volatile ConcurrentHashMap<String, String> tags = new ConcurrentHashMap();
+    private volatile ConcurrentHashMap<String, Integer> metrics = new ConcurrentHashMap();
 
     public HarPage() {
     }
@@ -62,5 +66,21 @@ public class HarPage {
     public void setComment(String comment) {
         this.comment = comment;
     }
+
+    // custom field per HAR spec we will use for arbitrary tagging data
+    public ConcurrentHashMap<String, String> get_tags(){ return this.tags; }
+
+    public void addTag(String tagName, String tagValue) throws Exception{
+        this.tags.put(tagName, tagValue);
+    }
+
+
+    // custom field per HAR spec we will use for arbitrary metric data
+    public ConcurrentHashMap<String, Integer> get_metrics(){ return this.metrics; }
+
+    public void addMetric(String metricName, Integer metricValue) throws Exception{
+        this.metrics.put(metricName, metricValue);
+    }
+
 
 }

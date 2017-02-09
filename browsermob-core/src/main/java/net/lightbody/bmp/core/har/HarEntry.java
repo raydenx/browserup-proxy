@@ -23,16 +23,27 @@ public class HarEntry {
     private volatile String comment = "";
 
     private volatile ConcurrentHashMap<String, String> tags = new ConcurrentHashMap();
-
+    private volatile ConcurrentHashMap<String, Integer> metrics = new ConcurrentHashMap();
 
     public HarEntry() {
     }
 
+
+    // custom field per HAR spec we will use for arbitrary tagging data
     public ConcurrentHashMap<String, String> get_tags(){ return this.tags; }
 
     public void addTag(String tagName, String tagValue) throws Exception{
        this.tags.put(tagName, tagValue);
     }
+
+
+    // custom field per HAR spec we will use for arbitrary metric data
+    public ConcurrentHashMap<String, Integer> get_metrics(){ return this.metrics; }
+
+    public void addMetric(String metricName, Integer metricValue) throws Exception{
+        this.metrics.put(metricName, metricValue);
+    }
+
 
     public HarEntry(String pageref) {
         this.pageref = pageref;

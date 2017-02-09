@@ -57,7 +57,7 @@ public class HarTest extends LocalServerTest {
         client.execute(get);
 
         // add a small delay to allow the HAR to populate
-        Thread.sleep(500);
+        Thread.sleep(100);
         Har har = proxy.getHar();
         HarLog log = har.getLog();
         List<HarEntry> entries = log.getEntries();
@@ -93,7 +93,7 @@ public class HarTest extends LocalServerTest {
 
 		assertThat(body, containsString("this is a.txt"));
 
-        Thread.sleep(500);
+        Thread.sleep(100);
 		Har har = proxy.getHar();
 		assertNotNull("Har is null", har);
 		HarLog log = har.getLog();
@@ -129,7 +129,7 @@ public class HarTest extends LocalServerTest {
 
 		assertThat(body, containsString("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}"));
 
-        Thread.sleep(500);
+        Thread.sleep(100);
 		Har har = proxy.getHar();
 		assertNotNull("Har is null", har);
 		HarLog log = har.getLog();
@@ -157,7 +157,7 @@ public class HarTest extends LocalServerTest {
 
 		IOUtils.toStringAndClose(client.execute(post).getEntity().getContent());
 
-        Thread.sleep(500);
+        Thread.sleep(100);
 		Har har = proxy.getHar();
 		assertNotNull("Har is null", har);
 		HarLog log = har.getLog();
@@ -658,7 +658,7 @@ public class HarTest extends LocalServerTest {
 		HarEntry entry = entries.get(0);
 
 		entry.addTag("_foo", "bar");
-		assertEquals(entry.getTag("_foo"), "bar1");
+		assertEquals("bar", entry.getTags().get("_foo"));
 
 		assertEquals("Expected response size to equal the size of the echoed POST request", lengthyPost.length(), entry.getResponse().getBodySize());
 	}
@@ -694,7 +694,6 @@ public class HarTest extends LocalServerTest {
 		for (int i = 0; i < length; i++) {
 			lengthyPost.append((char)(random.nextInt(94) + 32));
 		}
-
 		return lengthyPost.toString();
 	}
 }

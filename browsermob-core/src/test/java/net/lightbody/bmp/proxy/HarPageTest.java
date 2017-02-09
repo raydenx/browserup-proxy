@@ -1,28 +1,29 @@
 package net.lightbody.bmp.proxy;
 
+/**
+ * Created by ebeland on 2/8/17.
+ */
+
 import com.fasterxml.jackson.databind.ObjectMapper;
-import net.lightbody.bmp.core.har.HarEntry;
+import net.lightbody.bmp.core.har.HarPage;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-/**
- * Created by ebeland on 2/7/17.
- */
-public class HarEntryTest {
+public class HarPageTest {
 
   @Test
   public void testTags() throws Exception {
-    HarEntry harEntry = new HarEntry();
-    harEntry.addTag("_foo", "bar");
-    assertEquals("bar", harEntry.get_tags().get("_foo"));
+    HarPage harPage = new HarPage();
+    harPage.addTag("_foo", "bar");
+    assertEquals("bar", harPage.get_tags().get("_foo"));
   }
 
   @Test
   public void testTagSerialization() throws Exception {
-    HarEntry harEntry = new HarEntry();
+    HarPage harPage = new HarPage();
 
-    harEntry.addTag("foo", "bar");
-    String json = new ObjectMapper().writeValueAsString(harEntry);
+    harPage.addTag("foo", "bar");
+    String json = new ObjectMapper().writeValueAsString(harPage);
 
     assertTrue(json.contains("bar"));
     assertTrue(json.contains("_tags"));
@@ -30,10 +31,10 @@ public class HarEntryTest {
 
   @Test
   public void testMetricSerialization() throws Exception {
-    HarEntry harEntry = new HarEntry();
+    HarPage harPage = new HarPage();
 
-    harEntry.addMetric("boo", 4);
-    String json = new ObjectMapper().writeValueAsString(harEntry);
+    harPage.addMetric("boo", 4);
+    String json = new ObjectMapper().writeValueAsString(harPage);
 
     assertTrue(json.contains("_metrics"));
     assertTrue(json.contains("boo"));
