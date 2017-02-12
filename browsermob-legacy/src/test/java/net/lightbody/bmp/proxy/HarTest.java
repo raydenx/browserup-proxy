@@ -658,7 +658,6 @@ public class HarTest extends LocalServerTest {
 		HarEntry entry = entries.get(0);
 
 		entry.addTag("_foo", "bar");
-		assertEquals("bar", entry.getTags().get("_foo"));
 
 		assertEquals("Expected response size to equal the size of the echoed POST request", lengthyPost.length(), entry.getResponse().getBodySize());
 	}
