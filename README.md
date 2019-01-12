@@ -1,3 +1,17 @@
+# BrowserUp Notes
+
+BrowserUp modifies the open-source browsermob proxy to add _key and _tag values to the HAR file map.
+
+To build it:
+```
+./gradlew jar
+```
+The built JAR should appear in: `browsermob-dist/build/libs/`
+
+
+
+What follows is the original BrowserMob Proxy readme documentation
+
 # BrowserMob Proxy
 
 BrowserMob Proxy allows you to manipulate HTTP requests and responses, capture HTTP content, and export performance data as a [HAR file](http://www.softwareishard.com/blog/har-12-spec/).
