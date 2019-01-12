@@ -2,11 +2,10 @@
 
 BrowserUp modifies the open-source browsermob proxy to add _key and _tag values to the HAR file map.
 
-To build it:
-```
-./gradlew jar
-```
-The built JAR should appear in: `browsermob-dist/build/libs/`
+If you change code here and you want it in BusDriver:
+* Run all the Gradle "jar" tasks in all the sub-projects here
+* Copy all the JAR files from e.g. `mitm/build/libs/...`, `browsermob-legacy/build/libs/...`, ... into the BusDriver repo's `libs` folder.
+* In the BusDriver project (if using IntelliJ), open `build.gradle` and hit `Refresh all Projects`, then click `Build->Build Project` to get the changes.
 
 
 
