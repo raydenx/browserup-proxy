@@ -2,7 +2,6 @@
 description = 'BrowserMob Proxy REST Module'
 dependencies {
   compile project(':browsermob-core')
-  compile project(':browsermob-legacy')
     compile(group: 'com.google.sitebricks', name: 'sitebricks', version:'0.8.10') {
 exclude(module: 'netty')
     }

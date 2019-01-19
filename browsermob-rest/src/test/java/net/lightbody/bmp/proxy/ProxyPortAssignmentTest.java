@@ -4,6 +4,7 @@ import java.util.HashMap;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
+import net.lightbody.bmp.BrowserMobProxyServer;
 import net.lightbody.bmp.exception.ProxyExistsException;
 import net.lightbody.bmp.exception.ProxyPortsExhaustedException;
 import net.lightbody.bmp.proxy.test.util.ProxyManagerTest;
@@ -19,21 +20,21 @@ public class ProxyPortAssignmentTest extends ProxyManagerTest {
     @Test
     public void testAutoAssignment() throws Exception {
         int[] ports = {9091, 9092, 9093};
-        LegacyProxyServer p;
+        BrowserMobProxyServer p;
         for(int port : ports){
-            p = proxyManager.create(new HashMap<String, String>());
+            p = proxyManager.create();
             assertEquals(port, p.getPort());
         }
         try{
-            proxyManager.create(new HashMap<String, String>());        
+            proxyManager.create();
             fail();
         }catch(ProxyPortsExhaustedException e){
             proxyManager.delete(9093);
-            p = proxyManager.create(new HashMap<String, String>());
+            p = proxyManager.create();
             assertEquals(9093, p.getPort());
             
             proxyManager.delete(9091);
-            p = proxyManager.create(new HashMap<String, String>());
+            p = proxyManager.create();
             assertEquals(9091, p.getPort());
                     
             for(int port : ports){
@@ -44,10 +45,10 @@ public class ProxyPortAssignmentTest extends ProxyManagerTest {
     
     @Test
     public void testManualAssignment() throws Exception {
-        LegacyProxyServer p = proxyManager.create(new HashMap<String, String>(), 9094);
+        BrowserMobProxyServer p = proxyManager.create(9094);
         assertEquals(9094, p.getPort());
         try{            
-            proxyManager.create(new HashMap<String, String>(), 9094);            
+            proxyManager.create(9094);
             fail();
         }catch(ProxyExistsException e){
             assertEquals(9094, e.getPort());

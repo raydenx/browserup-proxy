@@ -12,32 +12,6 @@ import com.google.sitebricks.http.Delete;
 import com.google.sitebricks.http.Get;
 import com.google.sitebricks.http.Post;
 import com.google.sitebricks.http.Put;
-import net.lightbody.bmp.BrowserMobProxy;
-import net.lightbody.bmp.BrowserMobProxyServer;
-import net.lightbody.bmp.core.har.Har;
-import net.lightbody.bmp.exception.ProxyExistsException;
-import net.lightbody.bmp.exception.ProxyPortsExhaustedException;
-import net.lightbody.bmp.exception.UnsupportedCharsetException;
-import net.lightbody.bmp.filters.JavascriptRequestResponseFilter;
-import net.lightbody.bmp.proxy.CaptureType;
-import net.lightbody.bmp.proxy.LegacyProxyServer;
-import net.lightbody.bmp.proxy.ProxyManager;
-import net.lightbody.bmp.proxy.ProxyServer;
-import net.lightbody.bmp.proxy.http.BrowserMobHttpRequest;
-import net.lightbody.bmp.proxy.http.BrowserMobHttpResponse;
-import net.lightbody.bmp.proxy.http.RequestInterceptor;
-import net.lightbody.bmp.proxy.http.ResponseInterceptor;
-import net.lightbody.bmp.util.BrowserMobHttpUtil;
-import org.java_bandwidthlimiter.StreamManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.script.Bindings;
-import javax.script.Compilable;
-import javax.script.CompiledScript;
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -46,8 +20,24 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import javax.script.ScriptException;
+import net.lightbody.bmp.BrowserMobProxyServer;
+import net.lightbody.bmp.core.har.Har;
+import net.lightbody.bmp.exception.ProxyExistsException;
+import net.lightbody.bmp.exception.ProxyPortsExhaustedException;
+import net.lightbody.bmp.exception.UnsupportedCharsetException;
+import net.lightbody.bmp.filters.JavascriptRequestResponseFilter;
+import net.lightbody.bmp.proxy.CaptureType;
+import net.lightbody.bmp.proxy.ProxyManager;
+import net.lightbody.bmp.proxy.auth.AuthType;
+import net.lightbody.bmp.util.BrowserMobHttpUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @At("/proxy")
 @Service
@@ -64,7 +54,7 @@ public class ProxyResource {
     @Get
     public Reply<?> getProxies() {
         Collection<ProxyDescriptor> proxyList = new ArrayList<ProxyDescriptor>();
-        for (LegacyProxyServer proxy : proxyManager.get()) {
+        for (BrowserMobProxyServer proxy : proxyManager.get()) {
             proxyList.add(new ProxyDescriptor(proxy.getPort()));
         }
         return Reply.with(new ProxyListDescriptor(proxyList)).as(Json.class);
@@ -81,16 +71,11 @@ public class ProxyResource {
         Hashtable<String, String> options = new Hashtable<String, String>();
 
         // If the upstream proxy is specified via query params that should override any default system level proxy.
+        String upstreamHttpProxy = null;
         if (httpProxy != null) {
-            options.put("httpProxy", httpProxy);
+            upstreamHttpProxy = httpProxy;
         } else if ((systemProxyHost != null) && (systemProxyPort != null)) {
-            options.put("httpProxy", String.format("%s:%s", systemProxyHost, systemProxyPort));
-        }
-
-        // this is a short-term work-around for Proxy Auth in the REST API until the upcoming REST API refactor
-        if (proxyUsername != null && proxyPassword != null) {
-            options.put("proxyUsername", proxyUsername);
-            options.put("proxyPassword", proxyPassword);
+            upstreamHttpProxy  = String.format("%s:%s", systemProxyHost, systemProxyPort);
         }
 
         String paramBindAddr = request.param("bindAddress");
@@ -105,9 +90,9 @@ public class ProxyResource {
 
         LOG.debug("POST proxy instance on bindAddress `{}` & port `{}` & serverBindAddress `{}`",
                 paramBindAddr, paramPort, paramServerBindAddr);
-        LegacyProxyServer proxy;
+        BrowserMobProxyServer proxy;
         try {
-            proxy = proxyManager.create(options, paramPort, paramBindAddr, paramServerBindAddr, useEcc, trustAllServers);
+            proxy = proxyManager.create(upstreamHttpProxy, proxyUsername, proxyPassword, paramPort, paramBindAddr, paramServerBindAddr, useEcc, trustAllServers);
         } catch (ProxyExistsException ex) {
             return Reply.with(new ProxyDescriptor(ex.getPort())).status(455).as(Json.class);
         } catch (ProxyPortsExhaustedException ex) {
@@ -123,7 +108,7 @@ public class ProxyResource {
     @Get
     @At("/:port/har")
     public Reply<?> getHar(@Named("port") int port) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -136,7 +121,7 @@ public class ProxyResource {
     @Put
     @At("/:port/har")
     public Reply<?> newHar(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -148,9 +133,20 @@ public class ProxyResource {
         String captureHeaders = request.param("captureHeaders");
         String captureContent = request.param("captureContent");
         String captureBinaryContent = request.param("captureBinaryContent");
-        proxy.setCaptureHeaders(Boolean.parseBoolean(captureHeaders));
-        proxy.setCaptureContent(Boolean.parseBoolean(captureContent));
-        proxy.setCaptureBinaryContent(Boolean.parseBoolean(captureBinaryContent));
+        Set<CaptureType> captureTypes = new HashSet<CaptureType>();
+        if (Boolean.parseBoolean(captureHeaders)) {
+            captureTypes.add(CaptureType.REQUEST_HEADERS);
+            captureTypes.add(CaptureType.RESPONSE_HEADERS);
+        }
+        if (Boolean.parseBoolean(captureContent)) {
+            captureTypes.add(CaptureType.REQUEST_CONTENT);
+            captureTypes.add(CaptureType.RESPONSE_CONTENT);
+        }
+        if (Boolean.parseBoolean(captureBinaryContent)) {
+            captureTypes.add(CaptureType.REQUEST_BINARY_CONTENT);
+            captureTypes.add(CaptureType.RESPONSE_BINARY_CONTENT);
+        }
+        proxy.setHarCaptureTypes(captureTypes);
 
         String captureCookies = request.param("captureCookies");
         if (proxy instanceof BrowserMobProxyServer && Boolean.parseBoolean(captureCookies)) {
@@ -168,7 +164,7 @@ public class ProxyResource {
     @Put
     @At("/:port/har/pageRef")
     public Reply<?> setPage(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -183,18 +179,18 @@ public class ProxyResource {
     @Get
     @At("/:port/blacklist")
     public Reply<?> getBlacklist(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
 
-        return Reply.with(proxy.getBlacklistedUrls()).as(Json.class);
+        return Reply.with(proxy.getBlacklist()).as(Json.class);
     }
 
     @Put
     @At("/:port/blacklist")
     public Reply<?> blacklist(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -210,7 +206,7 @@ public class ProxyResource {
     @Delete
     @At("/:port/blacklist")
     public Reply<?> clearBlacklist(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -222,7 +218,7 @@ public class ProxyResource {
     @Get
     @At("/:port/whitelist")
     public Reply<?> getWhitelist(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -233,7 +229,7 @@ public class ProxyResource {
     @Put
     @At("/:port/whitelist")
     public Reply<?> whitelist(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -248,25 +244,25 @@ public class ProxyResource {
     @Delete
     @At("/:port/whitelist")
     public Reply<?> clearWhitelist(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
 
-        proxy.clearWhitelist();
+        proxy.disableWhitelist();
         return Reply.saying().ok();
     }
 
     @Post
     @At("/:port/auth/basic/:domain")
     public Reply<?> autoBasicAuth(@Named("port") int port, @Named("domain") String domain, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
 
         Map<String, String> credentials = request.read(HashMap.class).as(Json.class);
-        proxy.autoBasicAuthorization(domain, credentials.get("username"), credentials.get("password"));
+        proxy.autoAuthorization(domain, credentials.get("username"), credentials.get("password"), AuthType.BASIC);
 
         return Reply.saying().ok();
     }
@@ -274,7 +270,7 @@ public class ProxyResource {
     @Post
     @At("/:port/headers")
     public Reply<?> updateHeaders(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -289,94 +285,12 @@ public class ProxyResource {
     }
 
     @Post
-    @At("/:port/interceptor/response")
-    public Reply<?> addResponseInterceptor(@Named("port") int port, Request<String> request) throws IOException, ScriptException {
-        LegacyProxyServer proxy = proxyManager.get(port);
-        if (proxy == null) {
-            return Reply.saying().notFound();
-        }
-
-        if (!(proxy instanceof ProxyServer)) {
-            return Reply.saying().badRequest();
-        }
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        request.readTo(baos);
-
-        ScriptEngineManager mgr = new ScriptEngineManager();
-        final ScriptEngine engine = mgr.getEngineByName("JavaScript");
-        Compilable compilable = (Compilable) engine;
-        final CompiledScript script = compilable.compile(baos.toString());
-
-        proxy.addResponseInterceptor(new ResponseInterceptor() {
-            @Override
-            public void process(BrowserMobHttpResponse response, Har har) {
-                Bindings bindings = engine.createBindings();
-                bindings.put("response", response);
-                bindings.put("har", har);
-                bindings.put("log", LOG);
-                try {
-                    script.eval(bindings);
-                } catch (ScriptException e) {
-                    LOG.error("Could not execute JS-based response interceptor", e);
-                }
-            }
-        });
-
-        return Reply.saying().ok();
-    }
-
-    @Post
-    @At("/:port/interceptor/request")
-    public Reply<?> addRequestInterceptor(@Named("port") int port, Request<String> request) throws IOException, ScriptException {
-        LegacyProxyServer proxy = proxyManager.get(port);
-        if (proxy == null) {
-            return Reply.saying().notFound();
-        }
-
-        if (!(proxy instanceof ProxyServer)) {
-            return Reply.saying().badRequest();
-        }
-
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        request.readTo(baos);
-
-        ScriptEngineManager mgr = new ScriptEngineManager();
-        final ScriptEngine engine = mgr.getEngineByName("JavaScript");
-        Compilable compilable = (Compilable) engine;
-        final CompiledScript script = compilable.compile(baos.toString());
-
-        proxy.addRequestInterceptor(new RequestInterceptor() {
-            @Override
-            public void process(BrowserMobHttpRequest request, Har har) {
-                Bindings bindings = engine.createBindings();
-                bindings.put("request", request);
-                bindings.put("har", har);
-                bindings.put("log", LOG);
-                try {
-                    script.eval(bindings);
-                } catch (ScriptException e) {
-                    LOG.error("Could not execute JS-based response interceptor", e);
-                }
-            }
-        });
-
-        return Reply.saying().ok();
-    }
-
-    @Post
     @At("/:port/filter/request")
     public Reply<?> addRequestFilter(@Named("port") int port, Request<String> request) throws IOException, ScriptException {
-        LegacyProxyServer legacyProxy = proxyManager.get(port);
-        if (legacyProxy == null) {
+        BrowserMobProxyServer proxy = proxyManager.get(port);
+        if (proxy == null) {
             return Reply.saying().notFound();
         }
-
-        if (!(legacyProxy instanceof BrowserMobProxyServer)) {
-            return Reply.saying().badRequest();
-        }
-
-        BrowserMobProxy proxy = (BrowserMobProxy) legacyProxy;
 
         JavascriptRequestResponseFilter requestResponseFilter = new JavascriptRequestResponseFilter();
 
@@ -391,16 +305,10 @@ public class ProxyResource {
     @Post
     @At("/:port/filter/response")
     public Reply<?> addResponseFilter(@Named("port") int port, Request<String> request) throws IOException, ScriptException {
-        LegacyProxyServer legacyProxy = proxyManager.get(port);
-        if (legacyProxy == null) {
+        BrowserMobProxyServer proxy = proxyManager.get(port);
+        if (proxy == null) {
             return Reply.saying().notFound();
         }
-
-        if (!(legacyProxy instanceof BrowserMobProxyServer)) {
-            return Reply.saying().badRequest();
-        }
-
-        BrowserMobProxy proxy = (BrowserMobProxy) legacyProxy;
 
         JavascriptRequestResponseFilter requestResponseFilter = new JavascriptRequestResponseFilter();
 
@@ -415,109 +323,82 @@ public class ProxyResource {
     @Put
     @At("/:port/limit")
     public Reply<?> limit(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
 
-        StreamManager streamManager = proxy.getStreamManager();
         String upstreamKbps = request.param("upstreamKbps");
         if (upstreamKbps != null) {
             try {
-                streamManager.setUpstreamKbps(Integer.parseInt(upstreamKbps));
-                streamManager.enable();
+                long upstreamBytesPerSecond = Integer.parseInt(upstreamKbps) * 1000;
+                proxy.setWriteBandwidthLimit(upstreamBytesPerSecond);
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
 
         String upstreamBps = request.param("upstreamBps");
         if (upstreamBps != null) {
             try {
-                ((BrowserMobProxy) proxy).setWriteBandwidthLimit(Integer.parseInt(upstreamBps));
+                proxy.setWriteBandwidthLimit(Integer.parseInt(upstreamBps));
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
 
         String downstreamKbps = request.param("downstreamKbps");
         if (downstreamKbps != null) {
             try {
-                streamManager.setDownstreamKbps(Integer.parseInt(downstreamKbps));
-                streamManager.enable();
+                long downstreamBytesPerSecond = Integer.parseInt(downstreamKbps) * 1000;
+                proxy.setReadBandwidthLimit(downstreamBytesPerSecond);
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
 
         String downstreamBps = request.param("downstreamBps");
         if (downstreamBps != null) {
             try {
-                ((BrowserMobProxy) proxy).setReadBandwidthLimit(Integer.parseInt(downstreamBps));
+                proxy.setReadBandwidthLimit(Integer.parseInt(downstreamBps));
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
 
-        String upstreamMaxKB = request.param("upstreamMaxKB");
-        if (upstreamMaxKB != null) {
-            try {
-                streamManager.setUpstreamMaxKB(Integer.parseInt(upstreamMaxKB));
-                streamManager.enable();
-            } catch (NumberFormatException e) {
-            }
-        }
-        String downstreamMaxKB = request.param("downstreamMaxKB");
-        if (downstreamMaxKB != null) {
-            try {
-                streamManager.setDownstreamMaxKB(Integer.parseInt(downstreamMaxKB));
-                streamManager.enable();
-            } catch (NumberFormatException e) {
-            }
-        }
         String latency = request.param("latency");
         if (latency != null) {
             try {
-                streamManager.setLatency(Integer.parseInt(latency));
-                streamManager.enable();
+                proxy.setLatency(Long.parseLong(latency), TimeUnit.MILLISECONDS);
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
-        String payloadPercentage = request.param("payloadPercentage");
-        if (payloadPercentage != null) {
-            try {
-                streamManager.setPayloadPercentage(Integer.parseInt(payloadPercentage));
-            } catch (NumberFormatException e) {
-            }
-        }
-        String maxBitsPerSecond = request.param("maxBitsPerSecond");
-        if (maxBitsPerSecond != null) {
-            try {
-                streamManager.setMaxBitsPerSecondThreshold(Integer.parseInt(maxBitsPerSecond));
-            } catch (NumberFormatException e) {
-            }
-        }
-        String enable = request.param("enable");
-        if (enable != null) {
-            if (Boolean.parseBoolean(enable)) {
-                streamManager.enable();
-            } else {
-                streamManager.disable();
-            }
-        }
-        return Reply.saying().ok();
-    }
 
-    @Get
-    @At("/:port/limit")
-    public Reply<?> getLimits(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
-        if (proxy == null) {
-            return Reply.saying().notFound();
+        // No longer supported
+        if (request.param("upstreamMaxKB") != null) {
+            return Reply.saying().badRequest();
         }
-        return Reply.with(new BandwidthLimitDescriptor(proxy.getStreamManager())).as(Json.class);
+        if (request.param("downstreamMaxKB") != null) {
+            return Reply.saying().badRequest();
+        }
+        if (request.param("payloadPercentage") != null) {
+            return Reply.saying().badRequest();
+        }
+        if (request.param("maxBitsPerSecond") != null) {
+            return Reply.saying().badRequest();
+        }
+        if (request.param("enable") != null) {
+            return Reply.saying().badRequest();
+        }
+
+        return Reply.saying().ok();
     }
 
     @Put
     @At("/:port/timeout")
     public Reply<?> timeout(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -525,29 +406,34 @@ public class ProxyResource {
         String requestTimeout = request.param("requestTimeout");
         if (requestTimeout != null) {
             try {
-                proxy.setRequestTimeout(Integer.parseInt(requestTimeout));
+                proxy.setRequestTimeout(Integer.parseInt(requestTimeout), TimeUnit.SECONDS);
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
         String readTimeout = request.param("readTimeout");
         if (readTimeout != null) {
             try {
-                proxy.setSocketOperationTimeout(Integer.parseInt(readTimeout));
+                proxy.setIdleConnectionTimeout(Integer.parseInt(readTimeout), TimeUnit.SECONDS);
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
         String connectionTimeout = request.param("connectionTimeout");
         if (connectionTimeout != null) {
             try {
-                proxy.setConnectionTimeout(Integer.parseInt(connectionTimeout));
+                proxy.setConnectTimeout(Integer.parseInt(connectionTimeout), TimeUnit.SECONDS);
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
         String dnsCacheTimeout = request.param("dnsCacheTimeout");
         if (dnsCacheTimeout != null) {
             try {
-                proxy.setDNSCacheTimeout(Integer.parseInt(dnsCacheTimeout));
+                proxy.getHostNameResolver().setPositiveDNSCacheTimeout(Integer.parseInt(dnsCacheTimeout), TimeUnit.SECONDS);
+                proxy.getHostNameResolver().setNegativeDNSCacheTimeout(Integer.parseInt(dnsCacheTimeout), TimeUnit.SECONDS);
             } catch (NumberFormatException e) {
+                return Reply.saying().badRequest();
             }
         }
         return Reply.saying().ok();
@@ -556,7 +442,7 @@ public class ProxyResource {
     @Delete
     @At("/:port")
     public Reply<?> delete(@Named("port") int port) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -568,7 +454,7 @@ public class ProxyResource {
     @Post
     @At("/:port/hosts")
     public Reply<?> remapHosts(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -578,9 +464,10 @@ public class ProxyResource {
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
-            proxy.remapHost(key, value);
-            proxy.setDNSCacheTimeout(0);
-            proxy.clearDNSCache();
+            proxy.getHostNameResolver().remapHost(key, value);
+            proxy.getHostNameResolver().setNegativeDNSCacheTimeout(0, TimeUnit.SECONDS);
+            proxy.getHostNameResolver().setPositiveDNSCacheTimeout(0, TimeUnit.SECONDS);
+            proxy.getHostNameResolver().clearDNSCache();
         }
 
         return Reply.saying().ok();
@@ -590,33 +477,33 @@ public class ProxyResource {
     @Put
     @At("/:port/wait")
     public Reply<?> wait(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
 
         String quietPeriodInMs = request.param("quietPeriodInMs");
         String timeoutInMs = request.param("timeoutInMs");
-        proxy.waitForNetworkTrafficToStop(Integer.parseInt(quietPeriodInMs), Integer.parseInt(timeoutInMs));
+        proxy.waitForQuiescence(Long.parseLong(quietPeriodInMs), Long.parseLong(timeoutInMs), TimeUnit.MILLISECONDS);
         return Reply.saying().ok();
     }
 
     @Delete
     @At("/:port/dns/cache")
     public Reply<?> clearDnsCache(@Named("port") int port) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
+        proxy.getHostNameResolver().clearDNSCache();
 
-        proxy.clearDNSCache();
         return Reply.saying().ok();
     }
 
     @Put
     @At("/:port/rewrite")
     public Reply<?> rewriteUrl(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
@@ -630,25 +517,12 @@ public class ProxyResource {
     @Delete
     @At("/:port/rewrite")
     public Reply<?> clearRewriteRules(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
+        BrowserMobProxyServer proxy = proxyManager.get(port);
         if (proxy == null) {
             return Reply.saying().notFound();
         }
 
         proxy.clearRewriteRules();
-        return Reply.saying().ok();
-    }
-
-    @Put
-    @At("/:port/retry")
-    public Reply<?> retryCount(@Named("port") int port, Request<String> request) {
-        LegacyProxyServer proxy = proxyManager.get(port);
-        if (proxy == null) {
-            return Reply.saying().notFound();
-        }
-
-        String count = request.param("retrycount");
-        proxy.setRetryCount(Integer.parseInt(count));
         return Reply.saying().ok();
     }
 
@@ -698,55 +572,6 @@ public class ProxyResource {
 
         public void setProxyList(Collection<ProxyDescriptor> proxyList) {
             this.proxyList = proxyList;
-        }
-    }
-
-    public static class BandwidthLimitDescriptor {
-        private long maxUpstreamKB;
-        private long remainingUpstreamKB;
-        private long maxDownstreamKB;
-        private long remainingDownstreamKB;
-
-        public BandwidthLimitDescriptor() {
-        }
-
-        public BandwidthLimitDescriptor(StreamManager manager) {
-            this.maxDownstreamKB = manager.getMaxDownstreamKB();
-            this.remainingDownstreamKB = manager.getRemainingDownstreamKB();
-            this.maxUpstreamKB = manager.getMaxUpstreamKB();
-            this.remainingUpstreamKB = manager.getRemainingUpstreamKB();
-        }
-
-        public long getMaxUpstreamKB() {
-            return maxUpstreamKB;
-        }
-
-        public void setMaxUpstreamKB(long maxUpstreamKB) {
-            this.maxUpstreamKB = maxUpstreamKB;
-        }
-
-        public long getRemainingUpstreamKB() {
-            return remainingUpstreamKB;
-        }
-
-        public void setRemainingUpstreamKB(long remainingUpstreamKB) {
-            this.remainingUpstreamKB = remainingUpstreamKB;
-        }
-
-        public long getMaxDownstreamKB() {
-            return maxDownstreamKB;
-        }
-
-        public void setMaxDownstreamKB(long maxDownstreamKB) {
-            this.maxDownstreamKB = maxDownstreamKB;
-        }
-
-        public long getRemainingDownstreamKB() {
-            return remainingDownstreamKB;
-        }
-
-        public void setRemainingDownstreamKB(long remainingDownstreamKB) {
-            this.remainingDownstreamKB = remainingDownstreamKB;
         }
     }
 

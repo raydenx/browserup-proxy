@@ -3,7 +3,6 @@ description = 'BrowserMob Proxy Distributable'
 dependencies {
   compile project(':browsermob-core')
   compile project(':browsermob-rest')
-  compile project(':browsermob-legacy')
     compile group: 'org.apache.logging.log4j', name: 'log4j-api', version:'2.8'
     compile group: 'org.apache.logging.log4j', name: 'log4j-core', version:'2.8'
     compile group: 'org.apache.logging.log4j', name: 'log4j-slf4j-impl', version:'2.8'

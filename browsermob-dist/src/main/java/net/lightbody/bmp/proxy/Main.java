@@ -4,7 +4,6 @@ import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.servlet.GuiceServletContextListener;
 import com.google.sitebricks.SitebricksModule;
-import net.lightbody.bmp.exception.JettyException;
 import net.lightbody.bmp.proxy.bricks.ProxyResource;
 import net.lightbody.bmp.proxy.guice.ConfigModule;
 import net.lightbody.bmp.proxy.guice.JettyModule;
@@ -65,7 +64,7 @@ public class Main {
         } catch (Exception e) {
             LogHolder.log.error("Failed to start Jetty server. Aborting.", e);
 
-            throw new JettyException("Unable to start Jetty server", e);
+            throw new RuntimeException("Unable to start Jetty server", e);
         }
 
         ServletContextHandler context = (ServletContextHandler) server.getHandler();
